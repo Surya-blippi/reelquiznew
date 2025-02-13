@@ -32,7 +32,7 @@ const QuizPage = () => {
   const [currentQuestionIndex, setCurrentQuestionIndex] = useState(0);
   const [score, setScore] = useState(0);
   const [timeLeft, setTimeLeft] = useState(MAX_TIME);
-  // Initially we want autoplay muted so that first video loads
+  // Initially true to allow muted autoplay on mobile
   const [isMuted, setIsMuted] = useState(true);
   const [selectedOption, setSelectedOption] = useState(null);
   const [isAnswered, setIsAnswered] = useState(false);
@@ -42,10 +42,8 @@ const QuizPage = () => {
   const [gamesPlayed, setGamesPlayed] = useState(0);
   const [isUpdatingScore, setIsUpdatingScore] = useState(false);
   const [isGameComplete, setIsGameComplete] = useState(false);
-  // Controls showing the splash screen
+  // Splash screen flag: user must tap to start so we can unmute video
   const [hasStarted, setHasStarted] = useState(false);
-  // New state variable to force re-mounting the video element
-  const [videoKey, setVideoKey] = useState(0);
 
   // Listen for Firebase auth changes and fetch initial data when authenticated
   useEffect(() => {
@@ -76,6 +74,7 @@ const QuizPage = () => {
           )
         `);
       if (videosError) throw videosError;
+
       let processedQuizData = videosWithQuestions
         .filter((video) => video.questions && video.questions.length > 0)
         .map((video) => {
@@ -120,7 +119,7 @@ const QuizPage = () => {
     }
   };
 
-  // Timer effect – stops when the game is complete
+  // Timer effect – stops when game is complete
   useEffect(() => {
     if (isGameComplete) {
       if (timerRef.current) clearInterval(timerRef.current);
@@ -137,35 +136,36 @@ const QuizPage = () => {
     };
   }, [loading, isTransitioning, timeLeft, isGameComplete]);
 
-  // When a new question loads, try to play the video
+  // Whenever the question changes, force the video to reinitialize its source.
   useEffect(() => {
-    if (videoRef.current) {
-      videoRef.current
-        .play()
-        .catch((err) =>
-          console.error("Autoplay attempt (initial muted) failed", err)
-        );
-    }
-  }, [currentQuestionIndex]);
+    if (!hasStarted || !videoRef.current) return;
+    // Pause and reset video before loading new source.
+    videoRef.current.pause();
+    videoRef.current.currentTime = 0;
+    videoRef.current.load();
+    videoRef.current
+      .play()
+      .then(() => console.log("New video playing"))
+      .catch((err) =>
+        console.error("Error playing new video on question change", err)
+      );
+  }, [currentQuestionIndex, hasStarted]);
 
-  // Start game handler: triggered by the splash screen tap.
+  // Start the game when the user taps the splash screen.
   const startGame = () => {
     setHasStarted(true);
-    // Force re-mount of the video element by updating its key
-    setVideoKey((prev) => prev + 1);
-    // Unmute the video so sound can play
+    // Unmute the video and attempt to play it with sound.
     setIsMuted(false);
-    // Give the browser a moment to re-render the video, then attempt play
-    setTimeout(() => {
-      if (videoRef.current) {
-        videoRef.current.muted = false;
-        videoRef.current.removeAttribute("muted");
-        videoRef.current
-          .play()
-          .then(() => console.log("Video playing with sound"))
-          .catch((err) => console.error("Play failed:", err));
-      }
-    }, 500);
+    if (videoRef.current) {
+      videoRef.current.muted = false;
+      videoRef.current.removeAttribute("muted");
+      videoRef.current
+        .play()
+        .then(() => console.log("Video playing with sound"))
+        .catch((err) =>
+          console.error("Failed to play video with sound on start", err)
+        );
+    }
   };
 
   const updateUserScore = async (finalScore) => {
@@ -225,8 +225,6 @@ const QuizPage = () => {
     setTimeout(() => {
       if (currentQuestionIndex < quizData.length - 1) {
         setCurrentQuestionIndex((prev) => prev + 1);
-        // Force video re-mount for new question
-        setVideoKey((prev) => prev + 1);
       } else {
         clearInterval(timerRef.current);
         setIsGameComplete(true);
@@ -383,7 +381,7 @@ const QuizPage = () => {
     );
   }
 
-  // Splash screen before game starts
+  // Splash screen: ask user to tap to start.
   if (!hasStarted) {
     return (
       <div className="fixed inset-0 bg-black flex flex-col items-center justify-center">
@@ -407,7 +405,6 @@ const QuizPage = () => {
         <div className={`absolute inset-0 transition-opacity duration-500 ${isTransitioning ? "opacity-50" : "opacity-100"}`}>
           <video
             ref={videoRef}
-            key={videoKey}
             autoPlay
             playsInline
             webkitPlaysInline="true"
