@@ -34,7 +34,7 @@ const QuizPage = () => {
   const [currentQuestionIndex, setCurrentQuestionIndex] = useState(0);
   const [score, setScore] = useState(0);
   const [timeLeft, setTimeLeft] = useState(MAX_TIME);
-  const [isMuted, setIsMuted] = useState(true); // Initially muted for autoplay
+  const [isMuted, setIsMuted] = useState(true); // Initially true for autoplay on load
   const [selectedOption, setSelectedOption] = useState(null);
   const [isAnswered, setIsAnswered] = useState(false);
   const [showTimerAnimation, setShowTimerAnimation] = useState(false);
@@ -43,9 +43,9 @@ const QuizPage = () => {
   const [gamesPlayed, setGamesPlayed] = useState(0);
   const [isUpdatingScore, setIsUpdatingScore] = useState(false);
   const [isGameComplete, setIsGameComplete] = useState(false);
-  const [hasStarted, setHasStarted] = useState(false); // For splash screen
+  const [hasStarted, setHasStarted] = useState(false); // Controls splash screen
 
-  // Listen for Firebase auth changes and fetch initial data when authenticated
+  // Listen for Firebase auth changes and fetch data if authenticated
   useEffect(() => {
     const unsubscribe = auth.onAuthStateChanged((user) => {
       if (!user) {
@@ -57,7 +57,7 @@ const QuizPage = () => {
     return () => unsubscribe();
   }, [router]);
 
-  // Fetch quiz data and user scores using the authenticated user
+  // Fetch quiz data and user scores
   const fetchInitialData = async (user) => {
     try {
       const { data: videosWithQuestions, error: videosError } = await supabase
@@ -74,6 +74,7 @@ const QuizPage = () => {
           )
         `);
       if (videosError) throw videosError;
+
       let processedQuizData = videosWithQuestions
         .filter((video) => video.questions && video.questions.length > 0)
         .map((video) => {
@@ -110,13 +111,14 @@ const QuizPage = () => {
         setGamesPlayed(scoreData.games_played);
       }
       setLoading(false);
-    } catch (error) {
-      setError(error.message);
+    } catch (err) {
+      console.error('Error in fetchInitialData:', err);
+      setError(err.message);
       setLoading(false);
     }
   };
 
-  // Timer effect – stops when the game is complete
+  // Timer effect – stops when game is complete
   useEffect(() => {
     if (isGameComplete) {
       if (timerRef.current) clearInterval(timerRef.current);
@@ -125,13 +127,7 @@ const QuizPage = () => {
     if (!loading && timeLeft > 0 && !isTransitioning) {
       clearInterval(timerRef.current);
       timerRef.current = setInterval(() => {
-        setTimeLeft((prev) => {
-          if (prev <= 1) {
-            clearInterval(timerRef.current);
-            return 0;
-          }
-          return prev - 1;
-        });
+        setTimeLeft((prev) => (prev <= 1 ? 0 : prev - 1));
       }, 1000);
     }
     return () => {
@@ -139,25 +135,30 @@ const QuizPage = () => {
     };
   }, [loading, isTransitioning, timeLeft, isGameComplete]);
 
-  // When a new question loads, attempt to play video (it starts muted)
+  // On new question, attempt to play the video (it starts muted until game start)
   useEffect(() => {
     if (videoRef.current) {
       videoRef.current.play().catch((err) =>
-        console.error("Autoplay attempt failed", err)
+        console.error("Autoplay attempt (muted) failed", err)
       );
     }
   }, [currentQuestionIndex]);
 
-  // Function to start the game (triggered by user interaction)
+  // Start the game when user taps "Tap to Start"
   const startGame = () => {
     setHasStarted(true);
-    // Unmute the video now that we have a user gesture
+    // Unmute the video now that we have a genuine user gesture
     if (videoRef.current) {
       videoRef.current.muted = false;
       videoRef.current.removeAttribute("muted");
-      videoRef.current.play().catch((err) =>
-        console.error("Play after unmuting failed", err)
-      );
+      videoRef.current
+        .play()
+        .then(() => {
+          console.log("Video playing with sound");
+        })
+        .catch((err) =>
+          console.error("Failed to play video with sound", err)
+        );
       setIsMuted(false);
     }
   };
@@ -203,7 +204,8 @@ const QuizPage = () => {
       }
       setUserHighScore((prev) => Math.max(prev, finalScore));
       setGamesPlayed((prev) => prev + 1);
-    } catch (error) {
+    } catch (err) {
+      console.error('Error in updateUserScore:', err);
       alert('Failed to save score. Please try again.');
     } finally {
       setIsUpdatingScore(false);
@@ -367,7 +369,7 @@ const QuizPage = () => {
     );
   }
 
-  // If the game hasn't started yet, show a splash screen
+  // If the game hasn't started, show a splash screen
   if (!hasStarted) {
     return (
       <div className="fixed inset-0 bg-black flex flex-col items-center justify-center">
@@ -404,6 +406,7 @@ const QuizPage = () => {
           </video>
           <div className="absolute inset-0 bg-gradient-to-b from-black/20 via-transparent to-black/80" />
         </div>
+
         {/* Timer */}
         <div className="absolute top-4 left-1/2 -translate-x-1/2">
           <div className="relative">
@@ -448,6 +451,7 @@ const QuizPage = () => {
             )}
           </div>
         </div>
+
         {/* Game HUD */}
         <div className="absolute top-4 inset-x-4 flex justify-between items-center">
           <div className="flex items-center space-x-2 bg-black/50 rounded-full px-3 py-1 backdrop-blur-sm">
@@ -458,6 +462,7 @@ const QuizPage = () => {
             {isMuted ? <VolumeX className="w-6 h-6 text-white" /> : <Volume2 className="w-6 h-6 text-white" />}
           </button>
         </div>
+
         {/* Question and Options */}
         <div className={`absolute bottom-0 left-0 right-0 p-6 space-y-4 transition-all duration-500 ${isTransitioning ? 'opacity-0 translate-y-4' : 'opacity-100 translate-y-0'}`}>
           <div className="bg-gradient-to-r from-black/80 to-black/60 backdrop-blur-md rounded-2xl p-4 border border-white/10 shadow-lg animate-question-in">
