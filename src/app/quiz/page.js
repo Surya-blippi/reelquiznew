@@ -1,10 +1,10 @@
 "use client";
 
-import React, { useState, useEffect, useRef } from 'react';
-import { Award, Volume2, VolumeX, Timer, History, Trophy } from 'lucide-react';
-import { useRouter } from 'next/navigation';
-import { auth } from '@/lib/firebase';
-import { createClient } from '@supabase/supabase-js';
+import React, { useState, useEffect, useRef } from "react";
+import { Award, Volume2, VolumeX, Timer, History, Trophy } from "lucide-react";
+import { useRouter } from "next/navigation";
+import { auth } from "@/lib/firebase";
+import { createClient } from "@supabase/supabase-js";
 
 const MAX_TIME = 60;
 const TIME_BONUS = 5;
@@ -12,11 +12,9 @@ const TIME_BONUS = 5;
 // Initialize Supabase with error checking
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
 const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
-
 if (!supabaseUrl || !supabaseAnonKey) {
-  throw new Error('Missing Supabase environment variables');
+  throw new Error("Missing Supabase environment variables");
 }
-
 const supabase = createClient(supabaseUrl, supabaseAnonKey, {
   auth: { persistSession: true },
 });
@@ -34,7 +32,8 @@ const QuizPage = () => {
   const [currentQuestionIndex, setCurrentQuestionIndex] = useState(0);
   const [score, setScore] = useState(0);
   const [timeLeft, setTimeLeft] = useState(MAX_TIME);
-  const [isMuted, setIsMuted] = useState(true); // Initially true for autoplay on load
+  // Initially we want autoplay muted so that first video loads
+  const [isMuted, setIsMuted] = useState(true);
   const [selectedOption, setSelectedOption] = useState(null);
   const [isAnswered, setIsAnswered] = useState(false);
   const [showTimerAnimation, setShowTimerAnimation] = useState(false);
@@ -43,13 +42,16 @@ const QuizPage = () => {
   const [gamesPlayed, setGamesPlayed] = useState(0);
   const [isUpdatingScore, setIsUpdatingScore] = useState(false);
   const [isGameComplete, setIsGameComplete] = useState(false);
-  const [hasStarted, setHasStarted] = useState(false); // Controls splash screen
+  // Controls showing the splash screen
+  const [hasStarted, setHasStarted] = useState(false);
+  // New state variable to force re-mounting the video element
+  const [videoKey, setVideoKey] = useState(0);
 
-  // Listen for Firebase auth changes and fetch data if authenticated
+  // Listen for Firebase auth changes and fetch initial data when authenticated
   useEffect(() => {
     const unsubscribe = auth.onAuthStateChanged((user) => {
       if (!user) {
-        router.push('/');
+        router.push("/");
       } else {
         fetchInitialData(user);
       }
@@ -57,11 +59,11 @@ const QuizPage = () => {
     return () => unsubscribe();
   }, [router]);
 
-  // Fetch quiz data and user scores
+  // Fetch quiz data and user scores using the authenticated user
   const fetchInitialData = async (user) => {
     try {
       const { data: videosWithQuestions, error: videosError } = await supabase
-        .from('videos')
+        .from("videos")
         .select(`
           id,
           url,
@@ -74,11 +76,11 @@ const QuizPage = () => {
           )
         `);
       if (videosError) throw videosError;
-
       let processedQuizData = videosWithQuestions
         .filter((video) => video.questions && video.questions.length > 0)
         .map((video) => {
-          const randomQuestion = video.questions[Math.floor(Math.random() * video.questions.length)];
+          const randomQuestion =
+            video.questions[Math.floor(Math.random() * video.questions.length)];
           return {
             id: video.id,
             video: video.url,
@@ -89,22 +91,22 @@ const QuizPage = () => {
         })
         .filter((item) => item.question && item.options);
       if (processedQuizData.length === 0) {
-        throw new Error('No quiz questions available');
+        throw new Error("No quiz questions available");
       }
       processedQuizData = shuffleArray(processedQuizData);
       setQuizData(processedQuizData);
 
       const { data: scoreData, error: scoreError } = await supabase
-        .from('scores')
-        .select('*')
-        .eq('user_id', user.uid)
+        .from("scores")
+        .select("*")
+        .eq("user_id", user.uid)
         .single();
       if (scoreError) {
-        if (scoreError.code === 'PGRST116') {
+        if (scoreError.code === "PGRST116") {
           setUserHighScore(0);
           setGamesPlayed(0);
         } else {
-          console.error('Error fetching scores:', scoreError);
+          console.error("Error fetching scores:", scoreError);
         }
       } else if (scoreData) {
         setUserHighScore(scoreData.high_score);
@@ -112,13 +114,13 @@ const QuizPage = () => {
       }
       setLoading(false);
     } catch (err) {
-      console.error('Error in fetchInitialData:', err);
+      console.error("Error in fetchInitialData:", err);
       setError(err.message);
       setLoading(false);
     }
   };
 
-  // Timer effect – stops when game is complete
+  // Timer effect – stops when the game is complete
   useEffect(() => {
     if (isGameComplete) {
       if (timerRef.current) clearInterval(timerRef.current);
@@ -135,47 +137,50 @@ const QuizPage = () => {
     };
   }, [loading, isTransitioning, timeLeft, isGameComplete]);
 
-  // On new question, attempt to play the video (it starts muted until game start)
+  // When a new question loads, try to play the video
   useEffect(() => {
     if (videoRef.current) {
-      videoRef.current.play().catch((err) =>
-        console.error("Autoplay attempt (muted) failed", err)
-      );
+      videoRef.current
+        .play()
+        .catch((err) =>
+          console.error("Autoplay attempt (initial muted) failed", err)
+        );
     }
   }, [currentQuestionIndex]);
 
-  // Start the game when user taps "Tap to Start"
+  // Start game handler: triggered by the splash screen tap.
   const startGame = () => {
     setHasStarted(true);
-    // Unmute the video now that we have a genuine user gesture
-    if (videoRef.current) {
-      videoRef.current.muted = false;
-      videoRef.current.removeAttribute("muted");
-      videoRef.current
-        .play()
-        .then(() => {
-          console.log("Video playing with sound");
-        })
-        .catch((err) =>
-          console.error("Failed to play video with sound", err)
-        );
-      setIsMuted(false);
-    }
+    // Force re-mount of the video element by updating its key
+    setVideoKey((prev) => prev + 1);
+    // Unmute the video so sound can play
+    setIsMuted(false);
+    // Give the browser a moment to re-render the video, then attempt play
+    setTimeout(() => {
+      if (videoRef.current) {
+        videoRef.current.muted = false;
+        videoRef.current.removeAttribute("muted");
+        videoRef.current
+          .play()
+          .then(() => console.log("Video playing with sound"))
+          .catch((err) => console.error("Play failed:", err));
+      }
+    }, 500);
   };
 
   const updateUserScore = async (finalScore) => {
     try {
       setIsUpdatingScore(true);
       const user = auth.currentUser;
-      if (!user) throw new Error('No authenticated user');
+      if (!user) throw new Error("No authenticated user");
       const { data: existingScore, error: fetchError } = await supabase
-        .from('scores')
-        .select('*')
-        .eq('user_id', user.uid)
+        .from("scores")
+        .select("*")
+        .eq("user_id", user.uid)
         .single();
       if (!existingScore) {
         const { data: newScore, error: insertError } = await supabase
-          .from('scores')
+          .from("scores")
           .insert([
             {
               user_id: user.uid,
@@ -190,14 +195,14 @@ const QuizPage = () => {
       } else {
         const newHighScore = Math.max(existingScore.high_score, finalScore);
         const { data: updatedScore, error: updateError } = await supabase
-          .from('scores')
+          .from("scores")
           .update({
             total_score: existingScore.total_score + finalScore,
             high_score: newHighScore,
             games_played: existingScore.games_played + 1,
             updated_at: new Date().toISOString(),
           })
-          .eq('user_id', user.uid)
+          .eq("user_id", user.uid)
           .select()
           .single();
         if (updateError) throw updateError;
@@ -205,8 +210,8 @@ const QuizPage = () => {
       setUserHighScore((prev) => Math.max(prev, finalScore));
       setGamesPlayed((prev) => prev + 1);
     } catch (err) {
-      console.error('Error in updateUserScore:', err);
-      alert('Failed to save score. Please try again.');
+      console.error("Error in updateUserScore:", err);
+      alert("Failed to save score. Please try again.");
     } finally {
       setIsUpdatingScore(false);
     }
@@ -220,6 +225,8 @@ const QuizPage = () => {
     setTimeout(() => {
       if (currentQuestionIndex < quizData.length - 1) {
         setCurrentQuestionIndex((prev) => prev + 1);
+        // Force video re-mount for new question
+        setVideoKey((prev) => prev + 1);
       } else {
         clearInterval(timerRef.current);
         setIsGameComplete(true);
@@ -252,9 +259,9 @@ const QuizPage = () => {
   };
 
   const getTimerColor = () => {
-    if (timeLeft > 10) return 'text-green-500';
-    if (timeLeft > 5) return 'text-yellow-500';
-    return 'text-red-500';
+    if (timeLeft > 10) return "text-green-500";
+    if (timeLeft > 5) return "text-yellow-500";
+    return "text-red-500";
   };
 
   // Render loading state
@@ -272,7 +279,10 @@ const QuizPage = () => {
       <div className="fixed inset-0 bg-black flex items-center justify-center">
         <div className="text-center space-y-4">
           <p className="text-white text-lg">{error}</p>
-          <button onClick={() => window.location.reload()} className="px-6 py-3 bg-red-500 hover:bg-red-600 text-white rounded-full transition-colors">
+          <button
+            onClick={() => window.location.reload()}
+            className="px-6 py-3 bg-red-500 hover:bg-red-600 text-white rounded-full transition-colors"
+          >
             Try Again
           </button>
         </div>
@@ -296,7 +306,9 @@ const QuizPage = () => {
             </div>
             <div className="space-y-2">
               <p className="text-lg text-gray-400">Personal Best</p>
-              <p className="text-4xl font-bold text-yellow-500">{Math.max(userHighScore, score)}</p>
+              <p className="text-4xl font-bold text-yellow-500">
+                {Math.max(userHighScore, score)}
+              </p>
             </div>
           </div>
           <button
@@ -309,7 +321,7 @@ const QuizPage = () => {
             disabled={isUpdatingScore}
             className="px-8 py-4 bg-gradient-to-r from-red-500 to-pink-500 hover:from-red-600 hover:to-pink-600 text-white rounded-full font-medium transition-all hover:scale-105 shadow-lg shadow-red-500/25 disabled:opacity-50 disabled:cursor-not-allowed"
           >
-            {isUpdatingScore ? 'Saving Score...' : 'Play Again'}
+            {isUpdatingScore ? "Saving Score..." : "Play Again"}
           </button>
         </div>
       </div>
@@ -342,7 +354,9 @@ const QuizPage = () => {
             <div className="space-y-4">
               <p className="text-lg text-gray-400">Personal Best</p>
               <div className="bg-white/10 rounded-2xl p-4 backdrop-blur-sm">
-                <p className="text-4xl font-bold text-yellow-500">{Math.max(userHighScore, score)}</p>
+                <p className="text-4xl font-bold text-yellow-500">
+                  {Math.max(userHighScore, score)}
+                </p>
               </div>
               <p className="text-lg text-gray-400">Games Played</p>
               <div className="bg-white/10 rounded-2xl p-4 backdrop-blur-sm">
@@ -361,7 +375,7 @@ const QuizPage = () => {
               disabled={isUpdatingScore}
               className="px-8 py-4 bg-gradient-to-r from-red-500 to-pink-500 hover:from-red-600 hover:to-pink-600 text-white rounded-full font-medium transition-all hover:scale-105 shadow-lg shadow-red-500/25 disabled:opacity-50 disabled:cursor-not-allowed"
             >
-              {isUpdatingScore ? 'Saving Score...' : 'Play Again'}
+              {isUpdatingScore ? "Saving Score..." : "Play Again"}
             </button>
           </div>
         </div>
@@ -369,7 +383,7 @@ const QuizPage = () => {
     );
   }
 
-  // If the game hasn't started, show a splash screen
+  // Splash screen before game starts
   if (!hasStarted) {
     return (
       <div className="fixed inset-0 bg-black flex flex-col items-center justify-center">
@@ -390,9 +404,10 @@ const QuizPage = () => {
     <div className="fixed inset-0 bg-black flex justify-center">
       <div className="relative h-full aspect-[9/16] bg-black max-w-md w-full">
         {/* Video Background */}
-        <div className={`absolute inset-0 transition-opacity duration-500 ${isTransitioning ? 'opacity-50' : 'opacity-100'}`}>
+        <div className={`absolute inset-0 transition-opacity duration-500 ${isTransitioning ? "opacity-50" : "opacity-100"}`}>
           <video
             ref={videoRef}
+            key={videoKey}
             autoPlay
             playsInline
             webkitPlaysInline="true"
@@ -400,7 +415,6 @@ const QuizPage = () => {
             loop
             preload="auto"
             className="w-full h-full object-cover"
-            key={currentQuestionIndex}
           >
             <source src={currentQuestion.video} type="video/mp4" />
           </video>
@@ -464,7 +478,7 @@ const QuizPage = () => {
         </div>
 
         {/* Question and Options */}
-        <div className={`absolute bottom-0 left-0 right-0 p-6 space-y-4 transition-all duration-500 ${isTransitioning ? 'opacity-0 translate-y-4' : 'opacity-100 translate-y-0'}`}>
+        <div className={`absolute bottom-0 left-0 right-0 p-6 space-y-4 transition-all duration-500 ${isTransitioning ? "opacity-0 translate-y-4" : "opacity-100 translate-y-0"}`}>
           <div className="bg-gradient-to-r from-black/80 to-black/60 backdrop-blur-md rounded-2xl p-4 border border-white/10 shadow-lg animate-question-in">
             <div className="flex items-center space-x-3">
               <div className="bg-red-500 rounded-lg p-2 shadow-lg">
@@ -483,22 +497,22 @@ const QuizPage = () => {
                 className={`option-button p-5 rounded-xl text-left transition-all transform ${
                   isAnswered
                     ? index === currentQuestion.correctAnswer
-                      ? 'correct-highlight bg-gradient-to-r from-green-500 to-green-600 text-white animate-correct'
+                      ? "correct-highlight bg-gradient-to-r from-green-500 to-green-600 text-white animate-correct"
                       : index === selectedOption
-                      ? 'wrong-highlight bg-gradient-to-r from-red-500 to-red-600 text-white animate-wrong'
-                      : 'bg-black/50 opacity-50'
-                    : 'animate-option-in bg-gradient-to-r from-white/10 to-white/5 hover:from-white/20 hover:to-white/10 active:scale-95'
+                      ? "wrong-highlight bg-gradient-to-r from-red-500 to-red-600 text-white animate-wrong"
+                      : "bg-black/50 opacity-50"
+                    : "animate-option-in bg-gradient-to-r from-white/10 to-white/5 hover:from-white/20 hover:to-white/10 active:scale-95"
                 } backdrop-blur-sm shadow-lg border border-white/10 group`}
               >
                 <div className="flex items-center space-x-3">
                   <div className={`w-8 h-8 rounded-lg flex items-center justify-center ${
                     isAnswered
                       ? index === currentQuestion.correctAnswer
-                        ? 'bg-green-600'
+                        ? "bg-green-600"
                         : index === selectedOption
-                        ? 'bg-red-600'
-                        : 'bg-white/10'
-                      : 'bg-white/10 group-hover:bg-white/20'
+                        ? "bg-red-600"
+                        : "bg-white/10"
+                      : "bg-white/10 group-hover:bg-white/20"
                   } transition-colors`}>
                     <span className="text-sm font-bold text-white">{String.fromCharCode(65 + index)}</span>
                   </div>
