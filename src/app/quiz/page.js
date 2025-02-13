@@ -79,12 +79,10 @@ const QuizPage = () => {
             correct_answer
           )
         `);
-
       if (videosError) {
         console.error('Error fetching videos:', videosError);
         throw videosError;
       }
-
       let processedQuizData = videosWithQuestions
         .filter(video => video.questions && video.questions.length > 0)
         .map(video => {
@@ -98,22 +96,18 @@ const QuizPage = () => {
           };
         })
         .filter(item => item.question && item.options);
-
       if (processedQuizData.length === 0) {
         throw new Error('No quiz questions available');
       }
-
       // Shuffle the questions so the videos come in random order
       processedQuizData = shuffleArray(processedQuizData);
       setQuizData(processedQuizData);
-
       // Fetch user scores
       const { data: scoreData, error: scoreError } = await supabase
         .from('scores')
         .select('*')
         .eq('user_id', user.uid)
         .single();
-
       if (scoreError) {
         // Code 'PGRST116' indicates no record found, which is fine for new users.
         if (scoreError.code === 'PGRST116') {
@@ -127,7 +121,6 @@ const QuizPage = () => {
         setUserHighScore(scoreData.high_score);
         setGamesPlayed(scoreData.games_played);
       }
-
       setLoading(false);
     } catch (error) {
       console.error('Error in fetchInitialData:', error);
@@ -136,15 +129,12 @@ const QuizPage = () => {
     }
   };
 
-  // Timer effect – now stops when the game is complete
+  // Timer effect – stops when the game is complete
   useEffect(() => {
     if (isGameComplete) {
-      if (timerRef.current) {
-        clearInterval(timerRef.current);
-      }
+      if (timerRef.current) clearInterval(timerRef.current);
       return;
     }
-
     if (!loading && timeLeft > 0 && !isTransitioning) {
       clearInterval(timerRef.current);
       timerRef.current = setInterval(() => {
@@ -158,31 +148,49 @@ const QuizPage = () => {
       }, 1000);
     }
     return () => {
-      if (timerRef.current) {
-        clearInterval(timerRef.current);
-      }
+      if (timerRef.current) clearInterval(timerRef.current);
     };
   }, [loading, isTransitioning, timeLeft, isGameComplete]);
+
+  // Force video playback on mobile
+  useEffect(() => {
+    const ensureVideoPlays = () => {
+      if (videoRef.current) {
+        // Ensure muted is set (mobile browsers require muted videos for autoplay)
+        videoRef.current.muted = true;
+        videoRef.current.setAttribute('muted', '');
+        videoRef.current
+          .play()
+          .then(() => {
+            // Video is playing!
+            console.log("Video playback started");
+          })
+          .catch((err) => {
+            console.log("Autoplay attempt failed, retrying...", err);
+            // Retry after 1 second if not playing
+            setTimeout(ensureVideoPlays, 1000);
+          });
+      }
+    };
+    // Immediately try playing
+    ensureVideoPlays();
+  }, [currentQuestionIndex]);
 
   const updateUserScore = async (finalScore) => {
     try {
       setIsUpdatingScore(true);
       const user = auth.currentUser;
-      
       if (!user) {
         console.error('No user found');
         throw new Error('No authenticated user');
       }
-
       console.log('Updating score for user:', user.uid, 'Score:', finalScore);
-
-      // First try to get existing score
+      // Try to get existing score
       const { data: existingScore, error: fetchError } = await supabase
         .from('scores')
         .select('*')
         .eq('user_id', user.uid)
         .single();
-
       if (!existingScore) {
         // Create new score record
         const { data: newScore, error: insertError } = await supabase
@@ -197,7 +205,6 @@ const QuizPage = () => {
           ])
           .select()
           .single();
-
         if (insertError) {
           console.error('Insert error:', insertError);
           throw insertError;
@@ -217,15 +224,12 @@ const QuizPage = () => {
           .eq('user_id', user.uid)
           .select()
           .single();
-
         if (updateError) {
           console.error('Update error:', updateError);
           throw updateError;
         }
         console.log('Score updated:', updatedScore);
       }
-
-      // Update local state
       setUserHighScore(prev => Math.max(prev, finalScore));
       setGamesPlayed(prev => prev + 1);
     } catch (error) {
@@ -241,13 +245,10 @@ const QuizPage = () => {
     setIsAnswered(false);
     setSelectedOption(null);
     setShowTimerAnimation(false);
-
     setTimeout(() => {
-      // If there is another question, move to it
       if (currentQuestionIndex < quizData.length - 1) {
         setCurrentQuestionIndex(prev => prev + 1);
       } else {
-        // Otherwise, mark game as complete and clear the timer
         clearInterval(timerRef.current);
         setIsGameComplete(true);
       }
@@ -257,20 +258,16 @@ const QuizPage = () => {
 
   const handleAnswer = async (index) => {
     if (isAnswered || isTransitioning) return;
-    
     const currentQuestion = quizData[currentQuestionIndex];
     const isCorrect = index === currentQuestion.correctAnswer;
-    
     setSelectedOption(index);
     setIsAnswered(true);
-
     if (isCorrect) {
       setScore(prev => prev + 100);
       setShowTimerAnimation(true);
       const newTime = Math.min(timeLeft + TIME_BONUS, MAX_TIME);
       setTimeLeft(newTime);
     }
-
     await new Promise(resolve => setTimeout(resolve, 1500));
     moveToNextQuestion();
   };
@@ -288,7 +285,7 @@ const QuizPage = () => {
     return 'text-red-500';
   };
 
-  // Loading state
+  // Render loading state
   if (loading) {
     return (
       <div className="fixed inset-0 bg-black flex items-center justify-center">
@@ -297,7 +294,7 @@ const QuizPage = () => {
     );
   }
 
-  // Error state
+  // Render error state
   if (error) {
     return (
       <div className="fixed inset-0 bg-black flex items-center justify-center">
@@ -314,7 +311,7 @@ const QuizPage = () => {
     );
   }
 
-  // Time's up state
+  // Render "Time's Up" state
   if (timeLeft === 0) {
     return (
       <div className="fixed inset-0 bg-black/95 flex items-center justify-center p-4 z-50">
@@ -352,7 +349,7 @@ const QuizPage = () => {
     );
   }
 
-  // Game complete state (when all questions are answered)
+  // Render Game Complete state (when all questions are answered)
   if (isGameComplete) {
     return (
       <div className="fixed inset-0 bg-black/95 flex items-center justify-center p-4 z-50">
@@ -365,7 +362,6 @@ const QuizPage = () => {
             <h2 className="text-5xl font-bold text-white">Game Complete!</h2>
           </div>
           <div className="grid grid-cols-2 gap-6">
-            {/* Current Game Stats */}
             <div className="space-y-4">
               <p className="text-lg text-gray-400">Final Score</p>
               <div className="bg-white/10 rounded-2xl p-4 backdrop-blur-sm">
@@ -376,7 +372,6 @@ const QuizPage = () => {
                 <p className="text-4xl font-bold text-green-500">{timeLeft}s</p>
               </div>
             </div>
-            {/* Personal Stats */}
             <div className="space-y-4">
               <p className="text-lg text-gray-400">Personal Best</p>
               <div className="bg-white/10 rounded-2xl p-4 backdrop-blur-sm">
@@ -418,11 +413,13 @@ const QuizPage = () => {
         <div className={`absolute inset-0 transition-opacity duration-500 ${isTransitioning ? 'opacity-50' : 'opacity-100'}`}>
           <video
             ref={videoRef}
-            className="w-full h-full object-cover"
             autoPlay
             playsInline
+            webkitPlaysInline="true"
+            muted
             loop
-            muted={isMuted}
+            preload="auto"
+            className="w-full h-full object-cover"
             key={currentQuestionIndex}
           >
             <source src={currentQuestion.video} type="video/mp4" />
@@ -493,7 +490,6 @@ const QuizPage = () => {
 
         {/* Question and Options */}
         <div className={`absolute bottom-0 left-0 right-0 p-6 space-y-4 transition-all duration-500 ${isTransitioning ? 'opacity-0 translate-y-4' : 'opacity-100 translate-y-0'}`}>
-          {/* Question Box */}
           <div className="bg-gradient-to-r from-black/80 to-black/60 backdrop-blur-md rounded-2xl p-4 border border-white/10 shadow-lg animate-question-in">
             <div className="flex items-center space-x-3">
               <div className="bg-red-500 rounded-lg p-2 shadow-lg">
@@ -502,7 +498,6 @@ const QuizPage = () => {
               <p className="text-white text-lg font-medium">{currentQuestion.question}</p>
             </div>
           </div>
-          {/* Options Grid */}
           <div className="grid grid-cols-2 gap-3">
             {currentQuestion.options.map((option, index) => (
               <button
