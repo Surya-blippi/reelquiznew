@@ -36,6 +36,7 @@ const QuizPage = () => {
   const [isMuted, setIsMuted] = useState(true);
   const [selectedOption, setSelectedOption] = useState(null);
   const [isAnswered, setIsAnswered] = useState(false);
+  // When answer is correct, show bonus animation in the center
   const [showTimerAnimation, setShowTimerAnimation] = useState(false);
   const [isTransitioning, setIsTransitioning] = useState(false);
   const [userHighScore, setUserHighScore] = useState(0);
@@ -139,7 +140,6 @@ const QuizPage = () => {
   // Whenever the question changes, force the video to reinitialize its source.
   useEffect(() => {
     if (!hasStarted || !videoRef.current) return;
-    // Pause and reset video before loading new source.
     videoRef.current.pause();
     videoRef.current.currentTime = 0;
     videoRef.current.load();
@@ -221,6 +221,7 @@ const QuizPage = () => {
     setIsTransitioning(true);
     setIsAnswered(false);
     setSelectedOption(null);
+    // Hide bonus animation after a right answer.
     setShowTimerAnimation(false);
     setTimeout(() => {
       if (currentQuestionIndex < quizData.length - 1) {
@@ -241,6 +242,7 @@ const QuizPage = () => {
     setIsAnswered(true);
     if (isCorrect) {
       setScore((prev) => prev + 100);
+      // Show bonus animation in center if correct.
       setShowTimerAnimation(true);
       const newTime = Math.min(timeLeft + TIME_BONUS, MAX_TIME);
       setTimeLeft(newTime);
@@ -418,6 +420,15 @@ const QuizPage = () => {
           <div className="absolute inset-0 bg-gradient-to-b from-black/20 via-transparent to-black/80" />
         </div>
 
+        {/* Center Bonus Animation for correct answer */}
+        {showTimerAnimation && (
+          <div className="absolute top-1/2 left-1/2 transform -translate-x-1/2 -translate-y-1/2 pointer-events-none">
+            <div className="text-6xl font-bold text-green-500 animate-bounce">
+              +{TIME_BONUS}s
+            </div>
+          </div>
+        )}
+
         {/* Timer */}
         <div className="absolute top-4 left-1/2 -translate-x-1/2">
           <div className="relative">
@@ -452,14 +463,6 @@ const QuizPage = () => {
                 <Timer className={`w-4 h-4 mx-auto mt-1 ${getTimerColor()}`} />
               </div>
             </div>
-            {showTimerAnimation && (
-              <div className="absolute -top-8 left-1/2 -translate-x-1/2 animate-bonus-time">
-                <div className="flex items-center space-x-1 bg-green-500 rounded-full px-2 py-1">
-                  <History className="w-4 h-4 text-white" />
-                  <span className="text-white text-sm font-bold">+{TIME_BONUS}s</span>
-                </div>
-              </div>
-            )}
           </div>
         </div>
 
