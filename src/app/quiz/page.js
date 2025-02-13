@@ -1,7 +1,7 @@
 "use client";
 
 import React, { useState, useEffect, useRef } from 'react';
-import { Heart, Award, Volume2, VolumeX, Timer, History, Trophy } from 'lucide-react';
+import { Award, Volume2, VolumeX, Timer, History, Trophy } from 'lucide-react';
 import { useRouter } from 'next/navigation';
 import { auth } from '@/lib/firebase';
 import { createClient } from '@supabase/supabase-js';
@@ -18,15 +18,11 @@ if (!supabaseUrl || !supabaseAnonKey) {
 }
 
 const supabase = createClient(supabaseUrl, supabaseAnonKey, {
-  auth: {
-    persistSession: true,
-  },
+  auth: { persistSession: true },
 });
 
 // Helper function to shuffle an array
-const shuffleArray = (array) => {
-  return array.sort(() => Math.random() - 0.5);
-};
+const shuffleArray = (array) => array.sort(() => Math.random() - 0.5);
 
 const QuizPage = () => {
   const router = useRouter();
@@ -38,7 +34,7 @@ const QuizPage = () => {
   const [currentQuestionIndex, setCurrentQuestionIndex] = useState(0);
   const [score, setScore] = useState(0);
   const [timeLeft, setTimeLeft] = useState(MAX_TIME);
-  const [isMuted, setIsMuted] = useState(false);
+  const [isMuted, setIsMuted] = useState(true); // Initially muted for autoplay
   const [selectedOption, setSelectedOption] = useState(null);
   const [isAnswered, setIsAnswered] = useState(false);
   const [showTimerAnimation, setShowTimerAnimation] = useState(false);
@@ -47,15 +43,14 @@ const QuizPage = () => {
   const [gamesPlayed, setGamesPlayed] = useState(0);
   const [isUpdatingScore, setIsUpdatingScore] = useState(false);
   const [isGameComplete, setIsGameComplete] = useState(false);
+  const [hasStarted, setHasStarted] = useState(false); // For splash screen
 
   // Listen for Firebase auth changes and fetch initial data when authenticated
   useEffect(() => {
     const unsubscribe = auth.onAuthStateChanged((user) => {
       if (!user) {
-        console.log('No authenticated user found');
         router.push('/');
       } else {
-        console.log('Authenticated user:', user.uid);
         fetchInitialData(user);
       }
     });
@@ -65,7 +60,6 @@ const QuizPage = () => {
   // Fetch quiz data and user scores using the authenticated user
   const fetchInitialData = async (user) => {
     try {
-      // Fetch quiz data
       const { data: videosWithQuestions, error: videosError } = await supabase
         .from('videos')
         .select(`
@@ -79,39 +73,33 @@ const QuizPage = () => {
             correct_answer
           )
         `);
-      if (videosError) {
-        console.error('Error fetching videos:', videosError);
-        throw videosError;
-      }
+      if (videosError) throw videosError;
       let processedQuizData = videosWithQuestions
-        .filter(video => video.questions && video.questions.length > 0)
-        .map(video => {
+        .filter((video) => video.questions && video.questions.length > 0)
+        .map((video) => {
           const randomQuestion = video.questions[Math.floor(Math.random() * video.questions.length)];
           return {
             id: video.id,
             video: video.url,
             question: randomQuestion.question_text,
             options: randomQuestion.options,
-            correctAnswer: randomQuestion.correct_answer
+            correctAnswer: randomQuestion.correct_answer,
           };
         })
-        .filter(item => item.question && item.options);
+        .filter((item) => item.question && item.options);
       if (processedQuizData.length === 0) {
         throw new Error('No quiz questions available');
       }
-      // Shuffle the questions so the videos come in random order
       processedQuizData = shuffleArray(processedQuizData);
       setQuizData(processedQuizData);
-      // Fetch user scores
+
       const { data: scoreData, error: scoreError } = await supabase
         .from('scores')
         .select('*')
         .eq('user_id', user.uid)
         .single();
       if (scoreError) {
-        // Code 'PGRST116' indicates no record found, which is fine for new users.
         if (scoreError.code === 'PGRST116') {
-          console.log('No existing scores found for user');
           setUserHighScore(0);
           setGamesPlayed(0);
         } else {
@@ -123,7 +111,6 @@ const QuizPage = () => {
       }
       setLoading(false);
     } catch (error) {
-      console.error('Error in fetchInitialData:', error);
       setError(error.message);
       setLoading(false);
     }
@@ -138,7 +125,7 @@ const QuizPage = () => {
     if (!loading && timeLeft > 0 && !isTransitioning) {
       clearInterval(timerRef.current);
       timerRef.current = setInterval(() => {
-        setTimeLeft(prev => {
+        setTimeLeft((prev) => {
           if (prev <= 1) {
             clearInterval(timerRef.current);
             return 0;
@@ -152,47 +139,40 @@ const QuizPage = () => {
     };
   }, [loading, isTransitioning, timeLeft, isGameComplete]);
 
-  // Force video playback on mobile
+  // When a new question loads, attempt to play video (it starts muted)
   useEffect(() => {
-    const ensureVideoPlays = () => {
-      if (videoRef.current) {
-        // Ensure muted is set (mobile browsers require muted videos for autoplay)
-        videoRef.current.muted = true;
-        videoRef.current.setAttribute('muted', '');
-        videoRef.current
-          .play()
-          .then(() => {
-            // Video is playing!
-            console.log("Video playback started");
-          })
-          .catch((err) => {
-            console.log("Autoplay attempt failed, retrying...", err);
-            // Retry after 1 second if not playing
-            setTimeout(ensureVideoPlays, 1000);
-          });
-      }
-    };
-    // Immediately try playing
-    ensureVideoPlays();
+    if (videoRef.current) {
+      videoRef.current.play().catch((err) =>
+        console.error("Autoplay attempt failed", err)
+      );
+    }
   }, [currentQuestionIndex]);
+
+  // Function to start the game (triggered by user interaction)
+  const startGame = () => {
+    setHasStarted(true);
+    // Unmute the video now that we have a user gesture
+    if (videoRef.current) {
+      videoRef.current.muted = false;
+      videoRef.current.removeAttribute("muted");
+      videoRef.current.play().catch((err) =>
+        console.error("Play after unmuting failed", err)
+      );
+      setIsMuted(false);
+    }
+  };
 
   const updateUserScore = async (finalScore) => {
     try {
       setIsUpdatingScore(true);
       const user = auth.currentUser;
-      if (!user) {
-        console.error('No user found');
-        throw new Error('No authenticated user');
-      }
-      console.log('Updating score for user:', user.uid, 'Score:', finalScore);
-      // Try to get existing score
+      if (!user) throw new Error('No authenticated user');
       const { data: existingScore, error: fetchError } = await supabase
         .from('scores')
         .select('*')
         .eq('user_id', user.uid)
         .single();
       if (!existingScore) {
-        // Create new score record
         const { data: newScore, error: insertError } = await supabase
           .from('scores')
           .insert([
@@ -200,18 +180,13 @@ const QuizPage = () => {
               user_id: user.uid,
               total_score: finalScore,
               high_score: finalScore,
-              games_played: 1
-            }
+              games_played: 1,
+            },
           ])
           .select()
           .single();
-        if (insertError) {
-          console.error('Insert error:', insertError);
-          throw insertError;
-        }
-        console.log('New score created:', newScore);
+        if (insertError) throw insertError;
       } else {
-        // Update existing score
         const newHighScore = Math.max(existingScore.high_score, finalScore);
         const { data: updatedScore, error: updateError } = await supabase
           .from('scores')
@@ -219,21 +194,16 @@ const QuizPage = () => {
             total_score: existingScore.total_score + finalScore,
             high_score: newHighScore,
             games_played: existingScore.games_played + 1,
-            updated_at: new Date().toISOString()
+            updated_at: new Date().toISOString(),
           })
           .eq('user_id', user.uid)
           .select()
           .single();
-        if (updateError) {
-          console.error('Update error:', updateError);
-          throw updateError;
-        }
-        console.log('Score updated:', updatedScore);
+        if (updateError) throw updateError;
       }
-      setUserHighScore(prev => Math.max(prev, finalScore));
-      setGamesPlayed(prev => prev + 1);
+      setUserHighScore((prev) => Math.max(prev, finalScore));
+      setGamesPlayed((prev) => prev + 1);
     } catch (error) {
-      console.error('Error in updateUserScore:', error);
       alert('Failed to save score. Please try again.');
     } finally {
       setIsUpdatingScore(false);
@@ -247,7 +217,7 @@ const QuizPage = () => {
     setShowTimerAnimation(false);
     setTimeout(() => {
       if (currentQuestionIndex < quizData.length - 1) {
-        setCurrentQuestionIndex(prev => prev + 1);
+        setCurrentQuestionIndex((prev) => prev + 1);
       } else {
         clearInterval(timerRef.current);
         setIsGameComplete(true);
@@ -263,12 +233,12 @@ const QuizPage = () => {
     setSelectedOption(index);
     setIsAnswered(true);
     if (isCorrect) {
-      setScore(prev => prev + 100);
+      setScore((prev) => prev + 100);
       setShowTimerAnimation(true);
       const newTime = Math.min(timeLeft + TIME_BONUS, MAX_TIME);
       setTimeLeft(newTime);
     }
-    await new Promise(resolve => setTimeout(resolve, 1500));
+    await new Promise((resolve) => setTimeout(resolve, 1500));
     moveToNextQuestion();
   };
 
@@ -300,10 +270,7 @@ const QuizPage = () => {
       <div className="fixed inset-0 bg-black flex items-center justify-center">
         <div className="text-center space-y-4">
           <p className="text-white text-lg">{error}</p>
-          <button
-            onClick={() => window.location.reload()}
-            className="px-6 py-3 bg-red-500 hover:bg-red-600 text-white rounded-full transition-colors"
-          >
+          <button onClick={() => window.location.reload()} className="px-6 py-3 bg-red-500 hover:bg-red-600 text-white rounded-full transition-colors">
             Try Again
           </button>
         </div>
@@ -327,9 +294,7 @@ const QuizPage = () => {
             </div>
             <div className="space-y-2">
               <p className="text-lg text-gray-400">Personal Best</p>
-              <p className="text-4xl font-bold text-yellow-500">
-                {Math.max(userHighScore, score)}
-              </p>
+              <p className="text-4xl font-bold text-yellow-500">{Math.max(userHighScore, score)}</p>
             </div>
           </div>
           <button
@@ -375,9 +340,7 @@ const QuizPage = () => {
             <div className="space-y-4">
               <p className="text-lg text-gray-400">Personal Best</p>
               <div className="bg-white/10 rounded-2xl p-4 backdrop-blur-sm">
-                <p className="text-4xl font-bold text-yellow-500">
-                  {Math.max(userHighScore, score)}
-                </p>
+                <p className="text-4xl font-bold text-yellow-500">{Math.max(userHighScore, score)}</p>
               </div>
               <p className="text-lg text-gray-400">Games Played</p>
               <div className="bg-white/10 rounded-2xl p-4 backdrop-blur-sm">
@@ -404,6 +367,21 @@ const QuizPage = () => {
     );
   }
 
+  // If the game hasn't started yet, show a splash screen
+  if (!hasStarted) {
+    return (
+      <div className="fixed inset-0 bg-black flex flex-col items-center justify-center">
+        <h1 className="text-white text-4xl mb-8">Welcome to the Quiz!</h1>
+        <button
+          onClick={startGame}
+          className="px-8 py-4 bg-gradient-to-r from-green-500 to-green-700 text-white rounded-full font-medium transition-all hover:scale-105"
+        >
+          Tap to Start
+        </button>
+      </div>
+    );
+  }
+
   // Main game UI
   const currentQuestion = quizData[currentQuestionIndex];
   return (
@@ -416,7 +394,7 @@ const QuizPage = () => {
             autoPlay
             playsInline
             webkitPlaysInline="true"
-            muted
+            muted={isMuted}
             loop
             preload="auto"
             className="w-full h-full object-cover"
@@ -426,7 +404,6 @@ const QuizPage = () => {
           </video>
           <div className="absolute inset-0 bg-gradient-to-b from-black/20 via-transparent to-black/80" />
         </div>
-
         {/* Timer */}
         <div className="absolute top-4 left-1/2 -translate-x-1/2">
           <div className="relative">
@@ -457,9 +434,7 @@ const QuizPage = () => {
             </svg>
             <div className="absolute inset-0 flex items-center justify-center">
               <div className="text-center">
-                <span className={`text-2xl font-bold ${getTimerColor()}`}>
-                  {timeLeft}
-                </span>
+                <span className={`text-2xl font-bold ${getTimerColor()}`}>{timeLeft}</span>
                 <Timer className={`w-4 h-4 mx-auto mt-1 ${getTimerColor()}`} />
               </div>
             </div>
@@ -473,21 +448,16 @@ const QuizPage = () => {
             )}
           </div>
         </div>
-
         {/* Game HUD */}
         <div className="absolute top-4 inset-x-4 flex justify-between items-center">
           <div className="flex items-center space-x-2 bg-black/50 rounded-full px-3 py-1 backdrop-blur-sm">
             <Award className="w-5 h-5 text-yellow-500" />
             <span className="font-bold text-white">{score}</span>
           </div>
-          <button
-            onClick={toggleMute}
-            className="p-2 bg-black/50 rounded-full backdrop-blur-sm hover:bg-black/70 transition-colors"
-          >
+          <button onClick={toggleMute} className="p-2 bg-black/50 rounded-full backdrop-blur-sm hover:bg-black/70 transition-colors">
             {isMuted ? <VolumeX className="w-6 h-6 text-white" /> : <Volume2 className="w-6 h-6 text-white" />}
           </button>
         </div>
-
         {/* Question and Options */}
         <div className={`absolute bottom-0 left-0 right-0 p-6 space-y-4 transition-all duration-500 ${isTransitioning ? 'opacity-0 translate-y-4' : 'opacity-100 translate-y-0'}`}>
           <div className="bg-gradient-to-r from-black/80 to-black/60 backdrop-blur-md rounded-2xl p-4 border border-white/10 shadow-lg animate-question-in">
